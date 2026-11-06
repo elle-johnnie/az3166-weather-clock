@@ -68,4 +68,40 @@ typedef enum
 // returning to the clock, in seconds
 #define FORECAST_SCREEN_SECONDS 15
 
+// ----------------------------------------------------------------------------
+// RGB LED weather alerts
+//
+// The LED slowly "breathes" blue when rain is likely and icy white when it
+// will be near freezing. With both, it alternates between the two colors.
+// ----------------------------------------------------------------------------
+
+// 1 = alerts on, 0 = LED always off
+#define LED_ALERTS_ENABLED 1
+
+// Rain alert when the day's chance of rain is at least this percent
+#define RAIN_ALERT_PERCENT 50
+
+// Freezing alert when the day's low (or the current temperature) is at or
+// below this, in your display units (F or C)
+#if WEATHER_USE_IMPERIAL
+#define FREEZE_ALERT_TEMP 34
+#else
+#define FREEZE_ALERT_TEMP 1
+#endif
+
+// From this hour on (0-23), alerts are about tomorrow instead of today,
+// so the evening glow tells you what to expect in the morning
+#define ALERT_TOMORROW_FROM_HOUR 18
+
+// Quiet hours: LED stays off from LED_QUIET_START_HOUR until LED_QUIET_END_HOUR
+// (0-23, local time). Set both to the same value to never go quiet.
+#define LED_QUIET_START_HOUR 22
+#define LED_QUIET_END_HOUR   7
+
+// Peak brightness, 0-2047. The LED is very bright at full power.
+#define LED_MAX_BRIGHTNESS 500
+
+// Length of one slow breath (fade in and out), in seconds
+#define LED_BREATH_SECONDS 4
+
 #endif // _CLOUD_CONFIG_H

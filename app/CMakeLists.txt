@@ -68,6 +68,7 @@ elseif(APP_CONFIG STREQUAL "weather")
         ${COMMON_DIR}/board_init.c
         ${COMMON_DIR}/screen.c
         ${CONFIG_DIR}/weather.c
+        ${CONFIG_DIR}/led_alerts.c
         ${CONFIG_DIR}/main.c
         ${CONFIG_DIR}/cloud_config.h
     )

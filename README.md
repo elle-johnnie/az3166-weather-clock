@@ -5,6 +5,7 @@ A WiFi weather clock for the [MXChip AZ3166](https://docs.mxchip.com/en/nr6ggk/b
 - **Clock screen:** local time, day and date, current temperature and conditions, humidity and wind.
 - **Button A:** steps through the daily forecast (today, tomorrow, and the next few days), then back to the clock. Each day shows conditions, high/low, chance of rain and max wind. Dots in the corner show which day you're on. With no press for 15 seconds, it returns to the clock.
 - **Button B:** refresh the weather now (it otherwise updates every 15 minutes).
+- **RGB LED alerts:** the LED slowly breathes blue when rain is likely and icy white when it will be near freezing, alternating if both. From 6 PM it warns about tomorrow instead of today, and it stays off during quiet hours (10 PM to 7 AM by default).
 
 Time is synced over SNTP. Weather comes from [Open-Meteo](https://open-meteo.com), which is free and needs no API key. The local time zone, including daylight saving, comes from the weather service based on your location.
 
@@ -74,6 +75,12 @@ Edit `app/weather/cloud_config.h`:
 | `WEATHER_REFRESH_MINUTES` | How often to fetch new weather |
 | `FORECAST_DAYS` | How many forecast days button A steps through (1–7) |
 | `FORECAST_SCREEN_SECONDS` | How long the forecast screens stay up after the last press |
+| `LED_ALERTS_ENABLED` | `1` for LED weather alerts, `0` to keep the LED off |
+| `RAIN_ALERT_PERCENT` | Rain chance (%) that triggers the blue alert |
+| `FREEZE_ALERT_TEMP` | Low temperature that triggers the icy white alert |
+| `ALERT_TOMORROW_FROM_HOUR` | Hour from which alerts are about tomorrow |
+| `LED_QUIET_START_HOUR`, `LED_QUIET_END_HOUR` | Hours when the LED stays off |
+| `LED_MAX_BRIGHTNESS` | Peak LED brightness, 0-2047 |
 
 ## Build and flash
 

@@ -10,6 +10,9 @@
  *                           FORECAST_SCREEN_SECONDS with no press, it returns
  *                           to the clock on its own.
  *   Button B:               refresh the weather now.
+ *   RGB LED:                breathes blue when rain is likely and icy white
+ *                           near freezing (today, or tomorrow in the evening),
+ *                           off during quiet hours. See cloud_config.h.
  *
  * Time comes from SNTP; the local time zone (including daylight saving)
  * comes from the weather service for the configured location.
@@ -27,6 +30,7 @@
 #include "screen.h"
 #include "sntp_client.h"
 #include "ssd1306.h"
+#include "led_alerts.h"
 #include "weather.h"
 #include "wwd_networking.h"
 
@@ -488,6 +492,62 @@ static void draw_status(const char* line1, const char* line2)
     ssd1306_UpdateScreen();
 }
 
+// Which weather alerts the RGB LED should show right now.
+static int current_alerts(void)
+{
+#if !LED_ALERTS_ENABLED
+    return ALERT_NONE;
+#else
+    LOCAL_TIME lt;
+
+    if (!weather_valid)
+    {
+        return ALERT_NONE;
+    }
+
+    get_local_time(&lt);
+
+    // Quiet hours (the range may wrap past midnight, e.g. 22 -> 7)
+#if LED_QUIET_START_HOUR != LED_QUIET_END_HOUR
+#if LED_QUIET_START_HOUR < LED_QUIET_END_HOUR
+    int quiet = lt.hour >= LED_QUIET_START_HOUR && lt.hour < LED_QUIET_END_HOUR;
+#else
+    int quiet = lt.hour >= LED_QUIET_START_HOUR || lt.hour < LED_QUIET_END_HOUR;
+#endif
+    if (quiet)
+    {
+        return ALERT_NONE;
+    }
+#endif
+
+    // Today, or tomorrow once it's evening
+    int day = first_upcoming_day();
+    if (lt.hour >= ALERT_TOMORROW_FROM_HOUR)
+    {
+        day++;
+    }
+
+    int alerts = ALERT_NONE;
+    if (day < weather.day_count)
+    {
+        const WEATHER_DAY* d = &weather.days[day];
+        if (d->rain_chance != WEATHER_UNKNOWN && d->rain_chance >= RAIN_ALERT_PERCENT)
+        {
+            alerts |= ALERT_RAIN;
+        }
+        if (d->low <= FREEZE_ALERT_TEMP)
+        {
+            alerts |= ALERT_FREEZE;
+        }
+    }
+    if (weather.temperature <= FREEZE_ALERT_TEMP)
+    {
+        alerts |= ALERT_FREEZE;
+    }
+    return alerts;
+#endif
+}
+
 static int refresh_weather(void)
 {
     WEATHER_DATA fresh;
@@ -511,6 +571,7 @@ static void app_thread_entry(ULONG parameter)
     SCREEN screen          = SCREEN_CLOCK;
     ULONG forecast_shown   = 0;
     int forecast_page      = 0;
+    int last_alerts        = -1;
     ULONG next_fetch       = 0;
     int last_drawn_minute  = -1;
     int a_was_pressed      = 0;
@@ -614,6 +675,18 @@ static void app_thread_entry(ULONG parameter)
             last_drawn_minute = -1;
         }
         redraw = 0;
+
+        // --- RGB LED alerts ---
+        int alerts = current_alerts();
+        if (alerts != last_alerts)
+        {
+            printf("LED alerts: %s%s%s\r\n",
+                alerts == ALERT_NONE ? "none" : "",
+                (alerts & ALERT_RAIN) ? "rain " : "",
+                (alerts & ALERT_FREEZE) ? "freezing" : "");
+            last_alerts = alerts;
+        }
+        led_alerts_update(alerts, tx_time_get());
 
         tx_thread_sleep(LOOP_INTERVAL_TICKS);
     }
