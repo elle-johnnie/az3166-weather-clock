@@ -42,7 +42,21 @@ typedef enum
 #define WEATHER_USE_IMPERIAL 1
 
 // 1 = 12-hour clock (3:45 PM), 0 = 24-hour clock (15:45)
+#ifndef CLOCK_12_HOUR
 #define CLOCK_12_HOUR 0
+#endif
+
+// Clock screen layout. The screen's top 16 rows are always yellow and the rest
+// always blue, so each layout keeps text inside one color band.
+//   1 = time, day and date in the yellow header; current temperature and
+//       today's high/low/rain chance below in blue
+//   2 = day, date and temperature in the yellow header; big clock and
+//       humidity below in blue
+//   3 = day, date and temperature in the yellow header; big clock with
+//       today's high/low/rain chance beside it in blue
+#ifndef CLOCK_LAYOUT
+#define CLOCK_LAYOUT 1
+#endif
 
 // How often to fetch new weather data, in minutes
 #define WEATHER_REFRESH_MINUTES 30

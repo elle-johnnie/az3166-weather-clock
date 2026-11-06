@@ -117,6 +117,109 @@ static void draw_text(int x, int y, const char* text, FontDef font)
     ssd1306_WriteString((char*)text, font, White);
 }
 
+// The OLED is a two-color panel: rows 0-15 always light up yellow and rows
+// 16-63 always light up blue. Layouts keep each element inside one band.
+#define YELLOW_BAND_BOTTOM 15
+#define BLUE_BAND_TOP      17 // first row safely below the boundary
+
+static void draw_text_right(int right_x, int y, const char* text, FontDef font)
+{
+    draw_text(right_x - (int)strlen(text) * font.FontWidth, y, text, font);
+}
+
+static void format_time(const LOCAL_TIME* lt, char* buf, size_t size, int with_ampm)
+{
+#if CLOCK_12_HOUR
+    int hour12 = lt->hour % 12;
+    if (hour12 == 0)
+    {
+        hour12 = 12;
+    }
+    if (with_ampm)
+    {
+        snprintf(buf, size, "%d:%02d%s", hour12, lt->minute, lt->hour < 12 ? "AM" : "PM");
+    }
+    else
+    {
+        snprintf(buf, size, "%d:%02d", hour12, lt->minute);
+    }
+#else
+    (void)with_ampm;
+    snprintf(buf, size, "%02d:%02d", lt->hour, lt->minute);
+#endif
+}
+
+static int first_upcoming_day(void);
+
+// Not every layout uses every helper below; this keeps -Werror quiet.
+#define MAYBE_UNUSED __attribute__((unused))
+
+// 5x6 icons for the 7x10 font, one byte per row, bit 4 = leftmost pixel
+MAYBE_UNUSED static const uint8_t ICON_UP[6]   = {0x04, 0x0E, 0x1F, 0x04, 0x04, 0x04};
+MAYBE_UNUSED static const uint8_t ICON_DOWN[6] = {0x04, 0x04, 0x04, 0x1F, 0x0E, 0x04};
+MAYBE_UNUSED static const uint8_t ICON_DROP[6] = {0x04, 0x04, 0x0E, 0x1F, 0x1F, 0x0E};
+
+// Draws an icon at the height of a 7x10 text line starting at row y.
+MAYBE_UNUSED static void draw_icon(int x, int y, const uint8_t icon[6])
+{
+    for (int row = 0; row < 6; row++)
+    {
+        for (int col = 0; col < 5; col++)
+        {
+            if (icon[row] & (0x10 >> col))
+            {
+                ssd1306_DrawPixel(x + col, y + 2 + row, White);
+            }
+        }
+    }
+}
+
+// Today's high, low and rain chance as a small icon column at x.
+MAYBE_UNUSED static void draw_today_column(int x, int y)
+{
+    char buf[12];
+    int today = first_upcoming_day();
+    if (today >= weather.day_count)
+    {
+        return;
+    }
+    const WEATHER_DAY* d = &weather.days[today];
+
+    draw_icon(x, y, ICON_UP);
+    snprintf(buf, sizeof(buf), "%d%s", d->high, TEMP_UNIT);
+    draw_text(x + 8, y, buf, Font_7x10);
+
+    draw_icon(x, y + 11, ICON_DOWN);
+    snprintf(buf, sizeof(buf), "%d%s", d->low, TEMP_UNIT);
+    draw_text(x + 8, y + 11, buf, Font_7x10);
+
+    if (d->rain_chance != WEATHER_UNKNOWN)
+    {
+        draw_icon(x, y + 22, ICON_DROP);
+        snprintf(buf, sizeof(buf), "%d%%", d->rain_chance);
+        draw_text(x + 8, y + 22, buf, Font_7x10);
+    }
+}
+
+// Current conditions and wind along the bottom row.
+MAYBE_UNUSED static void draw_conditions_row(void)
+{
+    char buf[12];
+    draw_text(0, 53, weather_code_text(weather.weather_code), Font_7x10);
+    snprintf(buf, sizeof(buf), "%d%s", weather.wind_speed, SPEED_UNIT);
+    draw_text_right(128, 53, buf, Font_7x10);
+}
+
+#if CLOCK_LAYOUT == 1
+// Layout 1: time (medium font) plus day and date in the yellow header;
+// current temperature and today's forecast in the blue area.
+//
+//   11:12    Fri Nov 6     <- yellow
+//   ------------------
+//   50F       Hi 54F       <- blue
+//             Lo 48F
+//             Rain 73%
+//   Drizzle      5mph
 static void draw_clock_screen(void)
 {
     LOCAL_TIME lt;
@@ -125,46 +228,144 @@ static void draw_clock_screen(void)
     get_local_time(&lt);
     ssd1306_Fill(Black);
 
-    // Big time, top left
+    // The 11x18 font's digits only use rows 1-14, so they fit the yellow band.
+    format_time(&lt, buf, sizeof(buf), 0);
+    draw_text(0, 0, buf, Font_11x18);
+    int used = (int)strlen(buf) * 11;
 #if CLOCK_12_HOUR
-    int hour12 = lt.hour % 12;
-    if (hour12 == 0)
-    {
-        hour12 = 12;
-    }
-    snprintf(buf, sizeof(buf), "%d:%02d", hour12, lt.minute);
-#else
-    snprintf(buf, sizeof(buf), "%02d:%02d", lt.hour, lt.minute);
+    draw_text(used + 2, 4, lt.hour < 12 ? "AM" : "PM", Font_7x10);
+    used += 2 + 14;
 #endif
-    draw_text(0, 0, buf, Font_16x26);
 
-    // Small AM/PM + day and date, top right
+    snprintf(buf, sizeof(buf), "%s %s %d", DAY_NAMES[lt.weekday], MONTH_NAMES[lt.month - 1], lt.day);
+    if (used + 6 + (int)strlen(buf) * 7 > 128)
+    {
+        snprintf(buf, sizeof(buf), "%s %d", DAY_NAMES[lt.weekday], lt.day); // short form if needed
+    }
+    draw_text_right(128, 4, buf, Font_7x10);
+
+    if (!weather_valid)
+    {
+        draw_text(0, 30, "Getting weather...", Font_7x10);
+        ssd1306_UpdateScreen();
+        return;
+    }
+
+    snprintf(buf, sizeof(buf), "%d%s", weather.temperature, TEMP_UNIT);
+    draw_text(0, BLUE_BAND_TOP + 2, buf, Font_16x26);
+
+    int today = first_upcoming_day();
+    if (today < weather.day_count)
+    {
+        const WEATHER_DAY* d = &weather.days[today];
+        snprintf(buf, sizeof(buf), "Hi %d%s", d->high, TEMP_UNIT);
+        draw_text(64, BLUE_BAND_TOP, buf, Font_7x10);
+        snprintf(buf, sizeof(buf), "Lo %d%s", d->low, TEMP_UNIT);
+        draw_text(64, BLUE_BAND_TOP + 11, buf, Font_7x10);
+        if (d->rain_chance != WEATHER_UNKNOWN)
+        {
+            snprintf(buf, sizeof(buf), "Rain %d%%", d->rain_chance);
+            draw_text(64, BLUE_BAND_TOP + 22, buf, Font_7x10);
+        }
+    }
+
+    draw_conditions_row();
+    ssd1306_UpdateScreen();
+}
+#elif CLOCK_LAYOUT == 3
+// Layout 3: day, date and temperature in the yellow header; big clock with
+// today's high/low/rain beside it in the blue area.
+//
+//   Fri Nov 6       50F    <- yellow
+//   ------------------
+//   11:12      ^54F        <- blue
+//              v48F
+//              o73%
+//   Drizzle      5mph
+static void draw_clock_screen(void)
+{
+    LOCAL_TIME lt;
+    char buf[24];
+
+    get_local_time(&lt);
+    ssd1306_Fill(Black);
+
 #if CLOCK_12_HOUR
-    draw_text(86, 0, lt.hour < 12 ? "AM" : "PM", Font_7x10);
+    snprintf(buf, sizeof(buf), "%s %s %d %s",
+        DAY_NAMES[lt.weekday], MONTH_NAMES[lt.month - 1], lt.day, lt.hour < 12 ? "AM" : "PM");
+#else
+    snprintf(buf, sizeof(buf), "%s %s %d", DAY_NAMES[lt.weekday], MONTH_NAMES[lt.month - 1], lt.day);
 #endif
-    draw_text(86, 10, DAY_NAMES[lt.weekday], Font_7x10);
-    snprintf(buf, sizeof(buf), "%s %d", MONTH_NAMES[lt.month - 1], lt.day);
-    draw_text(86, 20, buf, Font_7x10);
+    draw_text(0, 3, buf, Font_7x10);
+    if (weather_valid)
+    {
+        snprintf(buf, sizeof(buf), "%d%s", weather.temperature, TEMP_UNIT);
+        draw_text_right(128, 3, buf, Font_7x10);
+    }
+
+    format_time(&lt, buf, sizeof(buf), 0);
+    draw_text(0, BLUE_BAND_TOP + 2, buf, Font_16x26);
 
     if (weather_valid)
     {
-        // Temperature + conditions
-        snprintf(buf, sizeof(buf), "%d%s", weather.temperature, TEMP_UNIT);
-        draw_text(0, 31, buf, Font_11x18);
-        draw_text(48, 35, weather_code_text(weather.weather_code), Font_7x10);
-
-        // Humidity + wind
-        snprintf(buf, sizeof(buf), "Hum %d%%  %d%s", weather.humidity, weather.wind_speed, SPEED_UNIT);
-        draw_text(0, 53, buf, Font_7x10);
+        draw_today_column(86, BLUE_BAND_TOP + 1);
+        draw_conditions_row();
     }
     else
     {
-        draw_text(0, 36, "Getting", Font_7x10);
-        draw_text(0, 48, "weather...", Font_7x10);
+        draw_text(0, 53, "Getting weather...", Font_7x10);
     }
 
     ssd1306_UpdateScreen();
 }
+#else
+// Layout 2: day, date and temperature in the yellow header; a big clock and
+// current conditions in the blue area.
+//
+//   Fri Nov 6       50F    <- yellow
+//   ------------------
+//   11:12       AM         <- blue
+//               89%
+//   Drizzle      5mph
+static void draw_clock_screen(void)
+{
+    LOCAL_TIME lt;
+    char buf[24];
+
+    get_local_time(&lt);
+    ssd1306_Fill(Black);
+
+    snprintf(buf, sizeof(buf), "%s %s %d", DAY_NAMES[lt.weekday], MONTH_NAMES[lt.month - 1], lt.day);
+    draw_text(0, 3, buf, Font_7x10);
+    if (weather_valid)
+    {
+        snprintf(buf, sizeof(buf), "%d%s", weather.temperature, TEMP_UNIT);
+        draw_text_right(128, 3, buf, Font_7x10);
+    }
+
+    format_time(&lt, buf, sizeof(buf), 0);
+    draw_text(0, BLUE_BAND_TOP + 2, buf, Font_16x26);
+#if CLOCK_12_HOUR
+    draw_text(86, BLUE_BAND_TOP + 4, lt.hour < 12 ? "AM" : "PM", Font_7x10);
+#endif
+
+    if (weather_valid)
+    {
+        snprintf(buf, sizeof(buf), "%d%%RH", weather.humidity);
+        draw_text(86, BLUE_BAND_TOP + 17, buf, Font_7x10);
+
+        draw_text(0, 53, weather_code_text(weather.weather_code), Font_7x10);
+        snprintf(buf, sizeof(buf), "%d%s", weather.wind_speed, SPEED_UNIT);
+        draw_text_right(128, 53, buf, Font_7x10);
+    }
+    else
+    {
+        draw_text(0, 53, "Getting weather...", Font_7x10);
+    }
+
+    ssd1306_UpdateScreen();
+}
+#endif
 
 // Days since 1970-01-01 for a calendar date (inverse of unix_to_local's date part).
 static long days_from_civil(int y, int m, int d)
@@ -214,9 +415,8 @@ static void draw_forecast_screen(int page)
 
     if (page >= pages)
     {
-        draw_text(0, 0, "Forecast", Font_7x10);
-        ssd1306_Line(0, 11, 127, 11, White);
-        draw_text(0, 24, "No data yet", Font_11x18);
+        draw_text(0, 3, "Forecast", Font_7x10);
+        draw_text(0, BLUE_BAND_TOP + 8, "No data yet", Font_11x18);
         ssd1306_UpdateScreen();
         return;
     }
@@ -239,7 +439,7 @@ static void draw_forecast_screen(int page)
     {
         snprintf(buf, sizeof(buf), "%s %s %d", weekday, MONTH_NAMES[d->month - 1], d->day);
     }
-    draw_text(0, 0, buf, Font_7x10);
+    draw_text(0, 3, buf, Font_7x10);
 
     // Page dots, top right: filled for the day shown
     for (int i = 0; i < pages; i++)
@@ -251,20 +451,18 @@ static void draw_forecast_screen(int page)
             for (int dy = -2; dy <= 2; dy++)
             {
                 int half = (dy == -2 || dy == 2) ? 1 : 2;
-                ssd1306_Line(x - half, 4 + dy, x + half, 4 + dy, White);
+                ssd1306_Line(x - half, 7 + dy, x + half, 7 + dy, White);
             }
         }
         else
         {
-            ssd1306_DrawPixel(x, 4, White);
+            ssd1306_DrawPixel(x, 7, White);
         }
     }
-    ssd1306_Line(0, 11, 127, 11, White);
-
-    draw_text(0, 15, weather_code_text(d->code), Font_11x18);
+    draw_text(0, BLUE_BAND_TOP, weather_code_text(d->code), Font_11x18);
 
     snprintf(buf, sizeof(buf), "Hi %d%s  Lo %d%s", d->high, TEMP_UNIT, d->low, TEMP_UNIT);
-    draw_text(0, 36, buf, Font_7x10);
+    draw_text(0, 39, buf, Font_7x10);
 
     if (d->rain_chance == WEATHER_UNKNOWN)
     {
@@ -274,7 +472,7 @@ static void draw_forecast_screen(int page)
     {
         snprintf(buf, sizeof(buf), "Rain %d%% Wind %d", d->rain_chance, d->wind_max);
     }
-    draw_text(0, 50, buf, Font_7x10);
+    draw_text(0, 52, buf, Font_7x10);
 
     ssd1306_UpdateScreen();
 }
