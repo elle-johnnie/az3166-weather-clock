@@ -1,5 +1,5 @@
 /*
- * Fetches current conditions and today's forecast from Open-Meteo.
+ * Fetches current conditions and a multi-day forecast from Open-Meteo.
  *
  * SPDX-License-Identifier: MIT
  */
@@ -9,6 +9,22 @@
 
 #include "tx_api.h"
 
+// Most days the forecast can hold. FORECAST_DAYS in cloud_config.h picks how
+// many are actually fetched (up to this limit).
+#define WEATHER_MAX_DAYS 7
+
+#define WEATHER_UNKNOWN (-999) // value missing from the response
+
+typedef struct
+{
+    int year, month, day; // date of this forecast day (month 1-12)
+    int code;             // WMO weather code
+    int high;
+    int low;
+    int rain_chance;      // percent, or WEATHER_UNKNOWN
+    int wind_max;
+} WEATHER_DAY;
+
 typedef struct
 {
     // Current conditions
@@ -17,12 +33,9 @@ typedef struct
     int wind_speed;       // mph or km/h, rounded
     int weather_code;     // WMO weather code
 
-    // Today's forecast
-    int today_code;       // WMO weather code
-    int today_high;
-    int today_low;
-    int today_rain_chance; // percent
-    int today_wind_max;
+    // Daily forecast; days[0] is the first day returned (normally today)
+    WEATHER_DAY days[WEATHER_MAX_DAYS];
+    int day_count;
 
     // Offset of the location's local time from UTC, in seconds (includes DST)
     long utc_offset_seconds;

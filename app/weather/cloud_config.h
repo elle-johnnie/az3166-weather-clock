@@ -35,19 +35,23 @@ typedef enum
 // needs no API key. Set your location as decimal degrees (south and west are
 // negative). Find yours at https://www.latlong.net
 // ----------------------------------------------------------------------------
-#define WEATHER_LATITUDE  "47.61"
-#define WEATHER_LONGITUDE "-122.33"
+#define WEATHER_LATITUDE  "47.42"
+#define WEATHER_LONGITUDE "-120.31"
 
 // 1 = Fahrenheit and mph, 0 = Celsius and km/h
 #define WEATHER_USE_IMPERIAL 1
 
 // 1 = 12-hour clock (3:45 PM), 0 = 24-hour clock (15:45)
-#define CLOCK_12_HOUR 1
+#define CLOCK_12_HOUR 0
 
 // How often to fetch new weather data, in minutes
-#define WEATHER_REFRESH_MINUTES 15
+#define WEATHER_REFRESH_MINUTES 30
 
-// How long the forecast screen stays up before returning to the clock, in seconds
+// Number of forecast days to show (1-7). Button A steps through them.
+#define FORECAST_DAYS 5
+
+// How long the forecast screens stay up after the last button press before
+// returning to the clock, in seconds
 #define FORECAST_SCREEN_SECONDS 15
 
 #endif // _CLOUD_CONFIG_H

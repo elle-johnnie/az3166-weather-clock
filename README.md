@@ -3,7 +3,7 @@
 A WiFi weather clock for the [MXChip AZ3166](https://docs.mxchip.com/en/nr6ggk/blyezpv6gkqicywi.html) IoT DevKit, running [Eclipse ThreadX](https://github.com/eclipse-threadx) and NetX Duo.
 
 - **Clock screen:** local time, day and date, current temperature and conditions, humidity and wind.
-- **Button A:** today's forecast: conditions, high/low, chance of rain and max wind. Press A again, or wait 15 seconds, to return to the clock.
+- **Button A:** steps through the daily forecast (today, tomorrow, and the next few days), then back to the clock. Each day shows conditions, high/low, chance of rain and max wind. Dots in the corner show which day you're on. With no press for 15 seconds, it returns to the clock.
 - **Button B:** refresh the weather now (it otherwise updates every 15 minutes).
 
 Time is synced over SNTP. Weather comes from [Open-Meteo](https://open-meteo.com), which is free and needs no API key. The local time zone, including daylight saving, comes from the weather service based on your location.
@@ -72,7 +72,8 @@ Edit `app/weather/cloud_config.h`:
 | `WEATHER_USE_IMPERIAL` | `1` for °F and mph, `0` for °C and km/h |
 | `CLOCK_12_HOUR` | `1` for a 12-hour clock, `0` for 24-hour |
 | `WEATHER_REFRESH_MINUTES` | How often to fetch new weather |
-| `FORECAST_SCREEN_SECONDS` | How long the forecast screen stays up |
+| `FORECAST_DAYS` | How many forecast days button A steps through (1–7) |
+| `FORECAST_SCREEN_SECONDS` | How long the forecast screens stay up after the last press |
 
 ## Build and flash
 

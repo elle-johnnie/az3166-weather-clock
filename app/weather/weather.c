@@ -22,6 +22,13 @@
 #define WEATHER_PORT    80
 #define WEATHER_TIMEOUT (10 * NX_IP_PERIODIC_RATE)
 
+#if FORECAST_DAYS < 1 || FORECAST_DAYS > WEATHER_MAX_DAYS
+#error "FORECAST_DAYS in cloud_config.h must be between 1 and WEATHER_MAX_DAYS (7)"
+#endif
+#define STRINGIFY_(x)     #x
+#define STRINGIFY(x)      STRINGIFY_(x)
+#define FORECAST_DAYS_STR STRINGIFY(FORECAST_DAYS)
+
 #if WEATHER_USE_IMPERIAL
 #define WEATHER_UNITS "&temperature_unit=fahrenheit&wind_speed_unit=mph"
 #else
@@ -33,9 +40,9 @@
     "&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m"                         \
     "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,"          \
     "wind_speed_10m_max"                                                                                \
-    "&timezone=auto&forecast_days=1" WEATHER_UNITS
+    "&timezone=auto&forecast_days=" FORECAST_DAYS_STR WEATHER_UNITS
 
-#define BODY_BUFFER_SIZE 2048
+#define BODY_BUFFER_SIZE 3072
 #define MAX_TOKENS       160
 
 static NX_WEB_HTTP_CLIENT http_client;
@@ -116,6 +123,22 @@ static int read_number(const char* json, int count, int parent, const char* key,
     }
     *out = parse_rounded(json + tokens[idx].start, tokens[idx].end - tokens[idx].start);
     return 1;
+}
+
+// Read element `index` of the number array `key`, or `fallback` if missing or null.
+static int read_array_number(const char* json, int count, int parent, const char* key, int index, int fallback)
+{
+    int idx = find_value(json, count, parent, key);
+    if (idx < 0 || tokens[idx].type != JSMN_ARRAY || index >= tokens[idx].size || idx + 1 + index >= count)
+    {
+        return fallback;
+    }
+    idx += 1 + index; // array elements are plain numbers, so they follow the array token in order
+    if (tokens[idx].type != JSMN_PRIMITIVE || json[tokens[idx].start] == 'n') // "null"
+    {
+        return fallback;
+    }
+    return (int)parse_rounded(json + tokens[idx].start, tokens[idx].end - tokens[idx].start);
 }
 
 static UINT http_get(char* buffer, ULONG buffer_size, ULONG* length)
@@ -227,20 +250,62 @@ UINT weather_fetch(WEATHER_DATA* out)
     if (read_number(body, count, current, "relative_humidity_2m", &v))    w.humidity           = (int)v;
     if (read_number(body, count, current, "wind_speed_10m", &v))          w.wind_speed         = (int)v;
     if (read_number(body, count, current, "weather_code", &v))            w.weather_code       = (int)v;
-    if (read_number(body, count, daily, "weather_code", &v))              w.today_code         = (int)v;
-    if (read_number(body, count, daily, "temperature_2m_max", &v))        w.today_high         = (int)v;
-    if (read_number(body, count, daily, "temperature_2m_min", &v))        w.today_low          = (int)v;
-    if (read_number(body, count, daily, "precipitation_probability_max", &v)) w.today_rain_chance = (int)v;
-    if (read_number(body, count, daily, "wind_speed_10m_max", &v))        w.today_wind_max     = (int)v;
+    // Daily forecast: each field is an array with one entry per day
+    int dates = find_value(body, count, daily, "time");
+    if (dates < 0 || tokens[dates].type != JSMN_ARRAY)
+    {
+        printf("ERROR: Weather response has no daily dates\r\n");
+        return NX_NOT_SUCCESSFUL;
+    }
+
+    w.day_count = tokens[dates].size;
+    if (w.day_count > WEATHER_MAX_DAYS)
+    {
+        w.day_count = WEATHER_MAX_DAYS;
+    }
+
+    for (int i = 0; i < w.day_count; i++)
+    {
+        WEATHER_DAY* d = &w.days[i];
+        int t          = dates + 1 + i;
+
+        // Dates look like "2026-11-06"
+        if (dates + 1 + i >= count || tokens[t].end - tokens[t].start != 10)
+        {
+            w.day_count = i;
+            break;
+        }
+        d->year  = (int)parse_rounded(body + tokens[t].start, 4);
+        d->month = (int)parse_rounded(body + tokens[t].start + 5, 2);
+        d->day   = (int)parse_rounded(body + tokens[t].start + 8, 2);
+
+        d->code        = read_array_number(body, count, daily, "weather_code", i, 0);
+        d->high        = read_array_number(body, count, daily, "temperature_2m_max", i, 0);
+        d->low         = read_array_number(body, count, daily, "temperature_2m_min", i, 0);
+        d->rain_chance = read_array_number(body, count, daily, "precipitation_probability_max", i, WEATHER_UNKNOWN);
+        d->wind_max    = read_array_number(body, count, daily, "wind_speed_10m_max", i, 0);
+    }
+
+    if (w.day_count == 0)
+    {
+        printf("ERROR: Weather response has no forecast days\r\n");
+        return NX_NOT_SUCCESSFUL;
+    }
 
     *out = w;
 
-    printf("Weather: %d, %s, high %d low %d, rain %d%%\r\n",
-        w.temperature,
-        weather_code_text(w.weather_code),
-        w.today_high,
-        w.today_low,
-        w.today_rain_chance);
+    printf("Weather: %d, %s, %d forecast days\r\n", w.temperature, weather_code_text(w.weather_code), w.day_count);
+    for (int i = 0; i < w.day_count; i++)
+    {
+        printf("  %04d-%02d-%02d %-11s hi %d lo %d rain %d%%\r\n",
+            w.days[i].year,
+            w.days[i].month,
+            w.days[i].day,
+            weather_code_text(w.days[i].code),
+            w.days[i].high,
+            w.days[i].low,
+            w.days[i].rain_chance);
+    }
 
     return NX_SUCCESS;
 }

@@ -3,8 +3,12 @@
  *
  *   Clock screen (default): local time, day/date, current temperature,
  *                           conditions, humidity and wind.
- *   Button A:               today's forecast (high/low, rain chance, wind).
- *                           Press A again, or wait, to return to the clock.
+ *   Button A:               steps through the daily forecast: today,
+ *                           tomorrow, and on (FORECAST_DAYS in cloud_config.h),
+ *                           then back to the clock. Each day shows conditions,
+ *                           high/low, rain chance and max wind. After
+ *                           FORECAST_SCREEN_SECONDS with no press, it returns
+ *                           to the clock on its own.
  *   Button B:               refresh the weather now.
  *
  * Time comes from SNTP; the local time zone (including daylight saving)
@@ -136,11 +140,11 @@ static void draw_clock_screen(void)
 
     // Small AM/PM + day and date, top right
 #if CLOCK_12_HOUR
-    draw_text(92, 0, lt.hour < 12 ? "AM" : "PM", Font_7x10);
+    draw_text(86, 0, lt.hour < 12 ? "AM" : "PM", Font_7x10);
 #endif
-    draw_text(92, 10, DAY_NAMES[lt.weekday], Font_7x10);
-    snprintf(buf, sizeof(buf), "%s%d", MONTH_NAMES[lt.month - 1], lt.day);
-    draw_text(85, 20, buf, Font_7x10);
+    draw_text(86, 10, DAY_NAMES[lt.weekday], Font_7x10);
+    snprintf(buf, sizeof(buf), "%s %d", MONTH_NAMES[lt.month - 1], lt.day);
+    draw_text(86, 20, buf, Font_7x10);
 
     if (weather_valid)
     {
@@ -162,31 +166,114 @@ static void draw_clock_screen(void)
     ssd1306_UpdateScreen();
 }
 
-static void draw_forecast_screen(void)
+// Days since 1970-01-01 for a calendar date (inverse of unix_to_local's date part).
+static long days_from_civil(int y, int m, int d)
+{
+    y -= m <= 2;
+    long era = (y >= 0 ? y : y - 399) / 400;
+    long yoe = y - era * 400;
+    long doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+    long doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return era * 146097 + doe - 719468;
+}
+
+// Index of the first forecast day that is today or later. Data fetched before
+// midnight still starts at "yesterday" until the next refresh, so skip it.
+static int first_upcoming_day(void)
+{
+    LOCAL_TIME lt;
+    get_local_time(&lt);
+    long today = days_from_civil(lt.year, lt.month, lt.day);
+
+    for (int i = 0; i < weather.day_count; i++)
+    {
+        const WEATHER_DAY* d = &weather.days[i];
+        if (days_from_civil(d->year, d->month, d->day) >= today)
+        {
+            return i;
+        }
+    }
+    return weather.day_count; // all stale
+}
+
+// Number of forecast pages button A can step through.
+static int forecast_page_count(void)
+{
+    return weather_valid ? weather.day_count - first_upcoming_day() : 0;
+}
+
+// Draws forecast page `page` (0 = today).
+static void draw_forecast_screen(int page)
 {
     char buf[24];
     LOCAL_TIME lt;
+    int pages = forecast_page_count();
 
     get_local_time(&lt);
     ssd1306_Fill(Black);
 
-    snprintf(buf, sizeof(buf), "Today, %s", DAY_NAMES[lt.weekday]);
-    draw_text(0, 0, buf, Font_7x10);
-    ssd1306_Line(0, 11, 127, 11, White);
-
-    if (!weather_valid)
+    if (page >= pages)
     {
+        draw_text(0, 0, "Forecast", Font_7x10);
+        ssd1306_Line(0, 11, 127, 11, White);
         draw_text(0, 24, "No data yet", Font_11x18);
         ssd1306_UpdateScreen();
         return;
     }
 
-    draw_text(0, 15, weather_code_text(weather.today_code), Font_11x18);
+    const WEATHER_DAY* d = &weather.days[first_upcoming_day() + page];
+    long day_number      = days_from_civil(d->year, d->month, d->day);
+    long days_ahead      = day_number - days_from_civil(lt.year, lt.month, lt.day);
+    const char* weekday  = DAY_NAMES[((day_number + 4) % 7 + 7) % 7];
 
-    snprintf(buf, sizeof(buf), "Hi %d%s  Lo %d%s", weather.today_high, TEMP_UNIT, weather.today_low, TEMP_UNIT);
+    // Header: "Today Thu", "Tomorrow Fri", or "Sat Nov 8"
+    if (days_ahead == 0)
+    {
+        snprintf(buf, sizeof(buf), "Today %s", weekday);
+    }
+    else if (days_ahead == 1)
+    {
+        snprintf(buf, sizeof(buf), "Tomorrow %s", weekday);
+    }
+    else
+    {
+        snprintf(buf, sizeof(buf), "%s %s %d", weekday, MONTH_NAMES[d->month - 1], d->day);
+    }
+    draw_text(0, 0, buf, Font_7x10);
+
+    // Page dots, top right: filled for the day shown
+    for (int i = 0; i < pages; i++)
+    {
+        int x = 127 - 3 - (pages - 1 - i) * 7;
+        if (i == page)
+        {
+            // Solid round dot, 5 px across
+            for (int dy = -2; dy <= 2; dy++)
+            {
+                int half = (dy == -2 || dy == 2) ? 1 : 2;
+                ssd1306_Line(x - half, 4 + dy, x + half, 4 + dy, White);
+            }
+        }
+        else
+        {
+            ssd1306_DrawPixel(x, 4, White);
+        }
+    }
+    ssd1306_Line(0, 11, 127, 11, White);
+
+    draw_text(0, 15, weather_code_text(d->code), Font_11x18);
+
+    snprintf(buf, sizeof(buf), "Hi %d%s  Lo %d%s", d->high, TEMP_UNIT, d->low, TEMP_UNIT);
     draw_text(0, 36, buf, Font_7x10);
 
-    snprintf(buf, sizeof(buf), "Rain %d%% Wind %d", weather.today_rain_chance, weather.today_wind_max);
+    if (d->rain_chance == WEATHER_UNKNOWN)
+    {
+        snprintf(buf, sizeof(buf), "Rain --  Wind %d", d->wind_max);
+    }
+    else
+    {
+        snprintf(buf, sizeof(buf), "Rain %d%% Wind %d", d->rain_chance, d->wind_max);
+    }
     draw_text(0, 50, buf, Font_7x10);
 
     ssd1306_UpdateScreen();
@@ -225,6 +312,7 @@ static void app_thread_entry(ULONG parameter)
     UINT status;
     SCREEN screen          = SCREEN_CLOCK;
     ULONG forecast_shown   = 0;
+    int forecast_page      = 0;
     ULONG next_fetch       = 0;
     int last_drawn_minute  = -1;
     int a_was_pressed      = 0;
@@ -261,16 +349,22 @@ static void app_thread_entry(ULONG parameter)
 
         if (a_pressed && !a_was_pressed)
         {
+            // Clock -> today -> tomorrow -> ... -> last day -> clock
             if (screen == SCREEN_CLOCK)
             {
-                screen         = SCREEN_FORECAST;
-                forecast_shown = now;
+                screen        = SCREEN_FORECAST;
+                forecast_page = 0;
+            }
+            else if (forecast_page + 1 < forecast_page_count())
+            {
+                forecast_page++;
             }
             else
             {
                 screen = SCREEN_CLOCK;
             }
-            redraw = 1;
+            forecast_shown = now; // timeout counts from the last press
+            redraw         = 1;
         }
 
         if (b_pressed && !b_was_pressed)
@@ -289,6 +383,12 @@ static void app_thread_entry(ULONG parameter)
             ULONG delay_seconds = refresh_weather() ? WEATHER_REFRESH_MINUTES * 60 : RETRY_SECONDS;
             next_fetch          = tx_time_get() + delay_seconds * TX_TIMER_TICKS_PER_SECOND;
             redraw              = 1;
+
+            // New data may have fewer upcoming days than the page being shown
+            if (forecast_page >= forecast_page_count() && forecast_page > 0)
+            {
+                forecast_page = forecast_page_count() > 0 ? forecast_page_count() - 1 : 0;
+            }
         }
 
         // --- Forecast screen timeout ---
@@ -312,7 +412,7 @@ static void app_thread_entry(ULONG parameter)
         }
         else if (redraw)
         {
-            draw_forecast_screen();
+            draw_forecast_screen(forecast_page);
             last_drawn_minute = -1;
         }
         redraw = 0;
