@@ -1,0 +1,47 @@
+.vscode/
+.settings/
+.metadata/
+.theia
+.cache
+_deps/
+build/
+Debug/
+CMakeFiles/
+CMakeScripts/
+CMakeLists.txt.user
+CMakeCache.txt
+Testing
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+*.dep
+*.o
+*.axf
+*.map
+#*.a
+*.htm
+*.gdb
+*.log
+shared/lib/netxduo/*
+shared/lib/threadx/*
+STMicroelectronics/STM32F767ZI-Nucleo/lib/stm32cubef7/
+STMicroelectronics/STM32F767ZI-Nucleo/lib/netxduo/
+
+# PlatformIO / Build outputs
+.pio/
+.pioenvs/
+.piolibdeps/
+build/
+*.bin
+*.elf
+*.hex
+
+# VS Code / Editor configs
+.vscode/
+
+# macOS system files
+.DS_Store
+# WiFi credentials (see app/weather/wifi_secrets.example.h)
+wifi_secrets.h
