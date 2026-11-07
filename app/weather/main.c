@@ -33,6 +33,7 @@
 #include "led_alerts.h"
 #include "motion.h"
 #include "weather.h"
+#include "weather_icons.h"
 #include "wwd_networking.h"
 
 #include "cloud_config.h"
@@ -208,10 +209,49 @@ MAYBE_UNUSED static void draw_today_column(int x, int y)
 }
 
 // Current conditions and wind along the bottom row.
+// The forecast day that matters next: today, or tomorrow once it's evening
+// (from ALERT_TOMORROW_FROM_HOUR). Returns an index into weather.days, which
+// may be past the end if there is no data for that day.
+static int coming_up_day(void)
+{
+    LOCAL_TIME lt;
+    get_local_time(&lt);
+
+    int day = first_upcoming_day();
+    if (lt.hour >= ALERT_TOMORROW_FROM_HOUR)
+    {
+        day++;
+    }
+    return day;
+}
+
+// Bottom row: current conditions icon -> coming-up forecast icon, then wind.
+//
+//   [cloud] -> [snow]          6mph
+// Current conditions icon -> coming-up forecast icon, 46 px wide and 16 tall,
+// with its top-left corner at (x, y).
+static void draw_icon_pair(int x, int y)
+{
+    weather_icon_draw(weather_icon(weather.weather_code, weather.is_day), x, y);
+
+    int day = coming_up_day();
+    if (day < weather.day_count)
+    {
+        // Arrow, 8 px wide
+        ssd1306_Line(x + 19, y + 7, x + 26, y + 7, White);
+        ssd1306_Line(x + 23, y + 4, x + 26, y + 7, White);
+        ssd1306_Line(x + 23, y + 10, x + 26, y + 7, White);
+
+        weather_icon_draw(weather_icon(weather.days[day].code, 1), x + 30, y);
+    }
+}
+
 MAYBE_UNUSED static void draw_conditions_row(void)
 {
     char buf[12];
-    draw_text(0, 53, weather_code_text(weather.weather_code), Font_7x10);
+
+    draw_icon_pair(0, 47); // 16-px icons fill rows 47-62
+
     snprintf(buf, sizeof(buf), "%d%s", weather.wind_speed, SPEED_UNIT);
     draw_text_right(128, 53, buf, Font_7x10);
 }
@@ -360,9 +400,7 @@ static void draw_clock_screen(void)
         snprintf(buf, sizeof(buf), "%d%%RH", weather.humidity);
         draw_text(86, BLUE_BAND_TOP + 17, buf, Font_7x10);
 
-        draw_text(0, 53, weather_code_text(weather.weather_code), Font_7x10);
-        snprintf(buf, sizeof(buf), "%d%s", weather.wind_speed, SPEED_UNIT);
-        draw_text_right(128, 53, buf, Font_7x10);
+        draw_conditions_row();
     }
     else
     {
@@ -508,11 +546,14 @@ MAYBE_UNUSED static int in_quiet_hours(const LOCAL_TIME* lt)
 }
 
 // ---------------------------------------------------------------------------
-// Screen saver: a small clock that slowly drifts and bounces around a dimmed
-// screen, so no pixel stays lit in the same place for long.
+// Screen saver: a small clock with the weather icons that slowly drifts and
+// bounces around a dimmed screen, so no pixel stays lit in one place for long.
+//
+//   14:34 47F
+//   [cloud] -> [snow]
 // ---------------------------------------------------------------------------
-#define SAVER_TEXT_HEIGHT 15 // 11x18 digits only use rows 1-14
-#define SAVER_MAX_Y       (64 - 18) // the driver needs the full 18-row glyph to fit
+#define SAVER_ICON_OFFSET 17 // icon row starts this far below the time
+#define SAVER_MAX_Y       (64 - SAVER_ICON_OFFSET - 16) // keep the icons on screen
 
 static int saver_x  = 20;
 static int saver_y  = 20;
@@ -555,6 +596,10 @@ static void draw_screen_saver(void)
     if (temp_buf[0])
     {
         draw_text(saver_x + (int)strlen(time_buf) * 11 + 4, saver_y + 4, temp_buf, Font_7x10);
+    }
+    if (weather_valid)
+    {
+        draw_icon_pair(saver_x, saver_y + SAVER_ICON_OFFSET);
     }
     ssd1306_UpdateScreen();
 }
@@ -603,12 +648,7 @@ static int current_alerts(void)
         return ALERT_NONE;
     }
 
-    // Today, or tomorrow once it's evening
-    int day = first_upcoming_day();
-    if (lt.hour >= ALERT_TOMORROW_FROM_HOUR)
-    {
-        day++;
-    }
+    int day = coming_up_day();
 
     int alerts = ALERT_NONE;
     if (day < weather.day_count)

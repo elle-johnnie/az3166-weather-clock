@@ -89,8 +89,9 @@ typedef enum
 #define FREEZE_ALERT_TEMP 1
 #endif
 
-// From this hour on (0-23), alerts are about tomorrow instead of today,
-// so the evening glow tells you what to expect in the morning.
+// From this hour on (0-23), LED alerts and the clock screen's forecast icon
+// are about tomorrow instead of today, so in the evening they tell you what
+// to expect in the morning.
 // The LED also stays off during quiet hours (QUIET_START_HOUR, below).
 #define ALERT_TOMORROW_FROM_HOUR 18
 

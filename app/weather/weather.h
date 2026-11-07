@@ -32,6 +32,7 @@ typedef struct
     int humidity;         // percent
     int wind_speed;       // mph or km/h, rounded
     int weather_code;     // WMO weather code
+    int is_day;           // 1 = daytime, 0 = night (for sun/moon icons)
 
     // Daily forecast; days[0] is the first day returned (normally today)
     WEATHER_DAY days[WEATHER_MAX_DAYS];

@@ -2,7 +2,7 @@
 
 A WiFi weather clock for the [MXChip AZ3166](https://docs.mxchip.com/en/nr6ggk/blyezpv6gkqicywi.html) IoT DevKit, running [Eclipse ThreadX](https://github.com/eclipse-threadx) and NetX Duo.
 
-- **Clock screen:** local time, day and date, current temperature and conditions, humidity and wind.
+- **Clock screen:** local time, day and date, current temperature, today's high/low/rain chance and wind. A pair of icons shows the current conditions and what's coming, e.g. cloud → snow (today's forecast, or tomorrow's from 6 PM). Clear skies show a moon at night.
 - **Button A:** steps through the daily forecast (today, tomorrow, and the next few days), then back to the clock. Each day shows conditions, high/low, chance of rain and max wind. Dots in the corner show which day you're on. With no press for 15 seconds, it returns to the clock.
 - **Button B:** refresh the weather now (it otherwise updates every 15 minutes).
 - **Screen saver:** after 10 minutes without a button press or movement, the screen dims and shows a small clock that slowly drifts around, to prevent OLED burn-in. During quiet hours the screen turns fully off. A button press, a tap on the board, or picking it up or bumping it wakes it.

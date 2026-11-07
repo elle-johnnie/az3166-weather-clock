@@ -37,7 +37,7 @@
 
 #define WEATHER_RESOURCE                                                                                 \
     "/v1/forecast?latitude=" WEATHER_LATITUDE "&longitude=" WEATHER_LONGITUDE                          \
-    "&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m"                         \
+    "&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,is_day"                         \
     "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,"          \
     "wind_speed_10m_max"                                                                                \
     "&timezone=auto&forecast_days=" FORECAST_DAYS_STR WEATHER_UNITS
@@ -244,12 +244,14 @@ UINT weather_fetch(WEATHER_DATA* out)
     }
 
     memset(&w, 0, sizeof(w));
+    w.is_day = 1;
 
     if (read_number(body, count, -1, "utc_offset_seconds", &v))           w.utc_offset_seconds = v;
     if (read_number(body, count, current, "temperature_2m", &v))          w.temperature        = (int)v;
     if (read_number(body, count, current, "relative_humidity_2m", &v))    w.humidity           = (int)v;
     if (read_number(body, count, current, "wind_speed_10m", &v))          w.wind_speed         = (int)v;
     if (read_number(body, count, current, "weather_code", &v))            w.weather_code       = (int)v;
+    if (read_number(body, count, current, "is_day", &v))                  w.is_day             = (int)v;
     // Daily forecast: each field is an array with one entry per day
     int dates = find_value(body, count, daily, "time");
     if (dates < 0 || tokens[dates].type != JSMN_ARRAY)
