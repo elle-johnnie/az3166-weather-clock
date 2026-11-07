@@ -155,7 +155,7 @@ typedef enum
 #define SOUND_ENABLED 1
 
 // Volume, 0-100 (each step is 0.5 dB; 100 = full, 60 = about -20 dB)
-#define SOUND_VOLUME 60
+#define SOUND_VOLUME 90
 
 // Play the morning tune at this local time
 #define MORNING_TUNE_ENABLED 1
