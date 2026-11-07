@@ -71,6 +71,8 @@ elseif(APP_CONFIG STREQUAL "weather")
         ${CONFIG_DIR}/led_alerts.c
         ${CONFIG_DIR}/motion.c
         ${CONFIG_DIR}/weather_icons.c
+        ${CONFIG_DIR}/audio.c
+        ${CONFIG_DIR}/morning_tune.c
         ${CONFIG_DIR}/main.c
         ${CONFIG_DIR}/cloud_config.h
     )

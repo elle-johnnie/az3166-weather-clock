@@ -135,4 +135,38 @@ typedef enum
 #define MOTION_MOVE_THRESHOLD 3
 #define MOTION_TAP_THRESHOLD  8
 
+// ----------------------------------------------------------------------------
+// Sound (headphone jack)
+//
+// Plug headphones or a powered speaker into the 3.5 mm jack. Each morning the
+// clock plays a short rising tune followed by a motif for the day's weather:
+// cold, cool, warm, hot or rainy. Hold button B for 1 second to hear it now.
+// ----------------------------------------------------------------------------
+
+// 1 = sound on, 0 = no audio at all
+#define SOUND_ENABLED 1
+
+// Volume, 0-100 (each step is 0.5 dB; 100 = full, 60 = about -20 dB)
+#define SOUND_VOLUME 60
+
+// Play the morning tune at this local time
+#define MORNING_TUNE_ENABLED 1
+#define MORNING_TUNE_HOUR    7
+#define MORNING_TUNE_MINUTE  0
+
+// 1 = also on Saturday and Sunday, 0 = weekdays only
+#define MORNING_TUNE_WEEKENDS 1
+
+// Which tune plays, from the day's forecast high (in your display units).
+// Snow picks "cold" and a likely-rain day (RAIN_ALERT_PERCENT) picks "rainy".
+#if WEATHER_USE_IMPERIAL
+#define TUNE_HOT_TEMP  85 // hot at or above this
+#define TUNE_WARM_TEMP 70 // warm at or above this
+#define TUNE_COOL_TEMP 50 // cool at or above this, cold below
+#else
+#define TUNE_HOT_TEMP  29
+#define TUNE_WARM_TEMP 21
+#define TUNE_COOL_TEMP 10
+#endif
+
 #endif // _CLOUD_CONFIG_H

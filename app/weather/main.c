@@ -30,7 +30,9 @@
 #include "screen.h"
 #include "sntp_client.h"
 #include "ssd1306.h"
+#include "audio.h"
 #include "led_alerts.h"
+#include "morning_tune.h"
 #include "motion.h"
 #include "weather.h"
 #include "weather_icons.h"
@@ -688,6 +690,83 @@ static int refresh_weather(void)
     return 0;
 }
 
+// The day's general weather for the morning tune: snow counts as cold, then
+// rain, then the day's high picks cold / cool / warm / hot.
+static WEATHER_MOOD todays_mood(void)
+{
+    int day = first_upcoming_day();
+    if (!weather_valid || day >= weather.day_count)
+    {
+        return MOOD_COOL; // neutral if there's no forecast
+    }
+
+    const WEATHER_DAY* d = &weather.days[day];
+    int c                = d->code;
+    int snowy            = (c >= 71 && c <= 77) || c == 85 || c == 86;
+    int wet              = (d->rain_chance != WEATHER_UNKNOWN && d->rain_chance >= RAIN_ALERT_PERCENT) ||
+                (c >= 51 && c <= 67) || (c >= 80 && c <= 82) || c >= 95;
+
+    if (snowy)
+    {
+        return MOOD_COLD;
+    }
+    if (wet)
+    {
+        return MOOD_RAINY;
+    }
+    if (d->high >= TUNE_HOT_TEMP)
+    {
+        return MOOD_HOT;
+    }
+    if (d->high >= TUNE_WARM_TEMP)
+    {
+        return MOOD_WARM;
+    }
+    if (d->high >= TUNE_COOL_TEMP)
+    {
+        return MOOD_COOL;
+    }
+    return MOOD_COLD;
+}
+
+static void play_morning_tune(void)
+{
+    WEATHER_MOOD mood = todays_mood();
+    printf("Morning tune: %s\r\n", weather_mood_name(mood));
+    morning_tune_play(mood);
+}
+
+// 1 once a day at MORNING_TUNE_HOUR:MORNING_TUNE_MINUTE (local time)
+static int morning_tune_due(void)
+{
+#if SOUND_ENABLED && MORNING_TUNE_ENABLED
+    static long last_day = -1;
+    LOCAL_TIME lt;
+
+    if (!weather_valid) // need the time zone (and forecast) first
+    {
+        return 0;
+    }
+    get_local_time(&lt);
+    long today = days_from_civil(lt.year, lt.month, lt.day);
+
+    if (lt.hour != MORNING_TUNE_HOUR || lt.minute != MORNING_TUNE_MINUTE || today == last_day)
+    {
+        return 0;
+    }
+    last_day = today;
+#if !MORNING_TUNE_WEEKENDS
+    if (lt.weekday == 0 || lt.weekday == 6)
+    {
+        return 0;
+    }
+#endif
+    return 1;
+#else
+    return 0;
+#endif
+}
+
 static void app_thread_entry(ULONG parameter)
 {
     UINT status;
@@ -701,6 +780,8 @@ static void app_thread_entry(ULONG parameter)
     int last_drawn_minute  = -1;
     int a_was_pressed      = 0;
     int b_was_pressed      = 0;
+    ULONG b_down_since     = 0;
+    int b_handled          = 0; // this B press already did something
     int redraw             = 1;
 
     printf("Starting weather clock\r\n");
@@ -726,6 +807,9 @@ static void app_thread_entry(ULONG parameter)
 #if SCREENSAVER_MINUTES > 0
     motion_init();
 #endif
+#if SOUND_ENABLED
+    audio_init();
+#endif
     last_activity = tx_time_get();
 
     while (1)
@@ -737,6 +821,7 @@ static void app_thread_entry(ULONG parameter)
         int b_pressed = BUTTON_B_IS_PRESSED;
         int a_clicked = a_pressed && !a_was_pressed;
         int b_clicked = b_pressed && !b_was_pressed;
+        int b_was_pressed_before = b_was_pressed;
         a_was_pressed = a_pressed;
         b_was_pressed = b_pressed;
 
@@ -753,6 +838,7 @@ static void app_thread_entry(ULONG parameter)
                 redraw    = 1;
                 a_clicked = 0; // a press that wakes the screen does nothing else
                 b_clicked = 0;
+                b_handled = 1;
             }
         }
         else if (screen == SCREEN_CLOCK && now - last_activity >= SCREENSAVER_MINUTES * 60UL * TX_TIMER_TICKS_PER_SECOND)
@@ -783,12 +869,47 @@ static void app_thread_entry(ULONG parameter)
             redraw         = 1;
         }
 
+        // Button B: short press = refresh weather (on release),
+        //           hold 1 second = play the morning tune now
         if (b_clicked)
         {
-            draw_status("Updating", "weather...");
-            next_fetch = now; // fetch right away
-            redraw     = 1;
+            b_down_since = now;
         }
+        if (b_pressed && !b_handled && now - b_down_since >= TX_TIMER_TICKS_PER_SECOND)
+        {
+            b_handled = 1;
+#if SOUND_ENABLED
+            play_morning_tune();
+#endif
+        }
+        if (!b_pressed && b_was_pressed_before)
+        {
+            if (!b_handled)
+            {
+                draw_status("Updating", "weather...");
+                next_fetch = now; // fetch right away
+                redraw     = 1;
+            }
+            b_handled = 0;
+        }
+
+        // --- Morning tune ---
+        if (morning_tune_due())
+        {
+            play_morning_tune();
+#if SCREENSAVER_MINUTES > 0
+            last_activity = now; // show the clock while it plays
+            if (screen == SCREEN_SAVER)
+            {
+                screen_saver_stop();
+                screen = SCREEN_CLOCK;
+                redraw = 1;
+            }
+#endif
+        }
+#if SOUND_ENABLED
+        audio_update();
+#endif
 
         // --- Weather refresh ---
         if ((LONG)(now - next_fetch) >= 0)

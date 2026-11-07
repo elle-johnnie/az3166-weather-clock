@@ -4,8 +4,9 @@ A WiFi weather clock for the [MXChip AZ3166](https://docs.mxchip.com/en/nr6ggk/b
 
 - **Clock screen:** local time, day and date, current temperature, today's high/low/rain chance and wind. A pair of icons shows the current conditions and what's coming, e.g. cloud → snow (today's forecast, or tomorrow's from 6 PM). Clear skies show a moon at night.
 - **Button A:** steps through the daily forecast (today, tomorrow, and the next few days), then back to the clock. Each day shows conditions, high/low, chance of rain and max wind. Dots in the corner show which day you're on. With no press for 15 seconds, it returns to the clock.
-- **Button B:** refresh the weather now (it otherwise updates every 15 minutes).
+- **Button B:** press to refresh the weather now (it otherwise updates on a schedule); hold for 1 second to play the morning tune.
 - **Screen saver:** after 10 minutes without a button press or movement, the screen dims and shows a small clock that slowly drifts around, to prevent OLED burn-in. During quiet hours the screen turns fully off. A button press, a tap on the board, or picking it up or bumping it wakes it.
+- **Morning tune:** plug headphones or a powered speaker into the 3.5 mm jack. At 7:00 AM the clock plays a short rising tune followed by a motif for the day: cold, cool, warm, hot or rainy. Hold button B for 1 second to hear today's tune now (a short press still refreshes the weather).
 - **RGB LED alerts:** the LED slowly breathes blue when rain is likely and icy white when it will be near freezing, alternating if both. From 6 PM it warns about tomorrow instead of today, and it stays off during quiet hours (10 PM to 7 AM by default).
 
 Time is synced over SNTP. Weather comes from [Open-Meteo](https://open-meteo.com), which is free and needs no API key. The local time zone, including daylight saving, comes from the weather service based on your location.
@@ -86,6 +87,10 @@ Edit `app/weather/cloud_config.h`:
 | `SCREENSAVER_CONTRAST` | Screen brightness during the screen saver, 0-255 |
 | `SCREEN_OFF_DURING_QUIET_HOURS` | `1` to turn the screen fully off at night instead of showing the screen saver |
 | `MOTION_MOVE_THRESHOLD`, `MOTION_TAP_THRESHOLD` | How much movement or tapping wakes the screen (lower = more sensitive) |
+| `SOUND_ENABLED`, `SOUND_VOLUME` | Sound on/off and volume (0-100) |
+| `MORNING_TUNE_HOUR`, `MORNING_TUNE_MINUTE` | When the morning tune plays |
+| `MORNING_TUNE_WEEKENDS` | `0` to play it on weekdays only |
+| `TUNE_HOT_TEMP`, `TUNE_WARM_TEMP`, `TUNE_COOL_TEMP` | Day highs that pick the hot / warm / cool / cold tune |
 
 ## Build and flash
 
@@ -131,5 +136,8 @@ The project also includes the original sample applications, selected the same wa
 These use `cloud_config.h` in their own folders for WiFi settings.
 
 ## Credits
+
+The audio setup (pins, clocks and audio chip registers) follows Microsoft's [IoT DevKit SDK](https://github.com/microsoft/devkit-sdk) (MIT).
+
 
 Based on the MXChip AZ3166 sample from [Eclipse ThreadX SampleX](https://github.com/eclipse-threadx/samplex), originally developed by Microsoft and adapted by the Eclipse Foundation. Licensed under the MIT license; see [LICENSE](LICENSE).

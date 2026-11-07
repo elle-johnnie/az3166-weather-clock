@@ -2,7 +2,7 @@ set(STM32_FAMILY "F4")
 set(STM32Cube_DIR "./")
 
 find_package(CMSIS REQUIRED)
-find_package(STM32HAL REQUIRED COMPONENTS dma flash gpio tim timebase_tim uart usart i2c)
+find_package(STM32HAL REQUIRED COMPONENTS dma flash gpio tim timebase_tim uart usart i2c i2s)
 
 set(TARGET stm32cubef4)
 
