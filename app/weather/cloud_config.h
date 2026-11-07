@@ -102,12 +102,19 @@ typedef enum
 #define LED_BREATH_SECONDS 4
 
 // ----------------------------------------------------------------------------
-// Quiet hours (local time, 0-23): the LED stays off, and if
+// Quiet hours (night, local time, 0-23): the LED stays off, and if
 // SCREEN_OFF_DURING_QUIET_HOURS is 1, the screen saver turns the screen fully
-// off. Set both to the same value to never go quiet.
+// off. Runs from the start hour up to (not including) the end hour; it may
+// wrap past midnight (e.g. 22 and 7). Set both the same to never go quiet.
 // ----------------------------------------------------------------------------
-#define QUIET_START_HOUR 22
+#define QUIET_START_HOUR 0
 #define QUIET_END_HOUR   7
+
+// Away hours (daytime, nobody in the room): the screen saver turns the screen
+// fully off instead of showing the drifting clock. The LED still shows alerts.
+// Same rules as quiet hours; set both the same to turn this off.
+#define AWAY_START_HOUR 9
+#define AWAY_END_HOUR   16
 
 // ----------------------------------------------------------------------------
 // Screen saver (prevents OLED burn-in)
@@ -126,7 +133,8 @@ typedef enum
 // The drifting clock moves one pixel every this many seconds
 #define SCREENSAVER_STEP_SECONDS 2
 
-// 1 = turn the screen fully off during quiet hours (while the saver is on)
+// 1 = turn the screen fully off during quiet hours (while the saver is on).
+// The screen is also off during away hours (above).
 #define SCREEN_OFF_DURING_QUIET_HOURS 1
 
 // Motion sensitivity. Lower = more sensitive.

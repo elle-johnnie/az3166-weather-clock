@@ -534,17 +534,33 @@ static void draw_status(const char* line1, const char* line2)
     ssd1306_UpdateScreen();
 }
 
-// Quiet hours, e.g. overnight (the range may wrap past midnight, e.g. 22 -> 7)
+// 1 if hour is in [start, end). The range may wrap past midnight (e.g. 22 -> 7);
+// start == end means never.
+static int hour_in_range(int hour, int start, int end)
+{
+    if (start == end)
+    {
+        return 0;
+    }
+    if (start < end)
+    {
+        return hour >= start && hour < end;
+    }
+    return hour >= start || hour < end;
+}
+
+// Quiet hours (night): LED off, and optionally the screen saver goes dark
 MAYBE_UNUSED static int in_quiet_hours(const LOCAL_TIME* lt)
 {
-#if QUIET_START_HOUR == QUIET_END_HOUR
-    (void)lt;
-    return 0;
-#elif QUIET_START_HOUR < QUIET_END_HOUR
-    return lt->hour >= QUIET_START_HOUR && lt->hour < QUIET_END_HOUR;
-#else
-    return lt->hour >= QUIET_START_HOUR || lt->hour < QUIET_END_HOUR;
-#endif
+    return hour_in_range(lt->hour, QUIET_START_HOUR, QUIET_END_HOUR);
+}
+
+// Whether the screen saver should turn the screen fully off right now:
+// during quiet hours (if enabled) and during away hours
+MAYBE_UNUSED static int screen_saver_dark(const LOCAL_TIME* lt)
+{
+    return (SCREEN_OFF_DURING_QUIET_HOURS && in_quiet_hours(lt)) ||
+           hour_in_range(lt->hour, AWAY_START_HOUR, AWAY_END_HOUR);
 }
 
 // ---------------------------------------------------------------------------
@@ -613,13 +629,11 @@ static void screen_saver_start(void)
 
     printf("Screen saver on\r\n");
     ssd1306_SetContrast(SCREENSAVER_CONTRAST);
-#if SCREEN_OFF_DURING_QUIET_HOURS
-    if (in_quiet_hours(&lt))
+    if (screen_saver_dark(&lt))
     {
         ssd1306_SetDisplayOn(0);
         return;
     }
-#endif
     draw_screen_saver();
 }
 
@@ -938,15 +952,12 @@ static void app_thread_entry(ULONG parameter)
         {
             LOCAL_TIME lt;
             get_local_time(&lt);
-            int dark = 0;
-#if SCREEN_OFF_DURING_QUIET_HOURS
-            // Turn the panel off or back on as quiet hours begin and end
-            dark = in_quiet_hours(&lt);
+            // Turn the panel off or back on as quiet/away hours begin and end
+            int dark = screen_saver_dark(&lt);
             if (dark == ssd1306_GetDisplayOn())
             {
                 ssd1306_SetDisplayOn(!dark);
             }
-#endif
             if (!dark && now - saver_last_step >= SCREENSAVER_STEP_SECONDS * TX_TIMER_TICKS_PER_SECOND)
             {
                 draw_screen_saver();
