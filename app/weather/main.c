@@ -31,6 +31,7 @@
 #include "sntp_client.h"
 #include "ssd1306.h"
 #include "led_alerts.h"
+#include "motion.h"
 #include "weather.h"
 #include "wwd_networking.h"
 
@@ -45,7 +46,8 @@
 typedef enum
 {
     SCREEN_CLOCK,
-    SCREEN_FORECAST
+    SCREEN_FORECAST,
+    SCREEN_SAVER
 } SCREEN;
 
 static TX_THREAD app_thread;
@@ -492,6 +494,95 @@ static void draw_status(const char* line1, const char* line2)
     ssd1306_UpdateScreen();
 }
 
+// Quiet hours, e.g. overnight (the range may wrap past midnight, e.g. 22 -> 7)
+MAYBE_UNUSED static int in_quiet_hours(const LOCAL_TIME* lt)
+{
+#if QUIET_START_HOUR == QUIET_END_HOUR
+    (void)lt;
+    return 0;
+#elif QUIET_START_HOUR < QUIET_END_HOUR
+    return lt->hour >= QUIET_START_HOUR && lt->hour < QUIET_END_HOUR;
+#else
+    return lt->hour >= QUIET_START_HOUR || lt->hour < QUIET_END_HOUR;
+#endif
+}
+
+// ---------------------------------------------------------------------------
+// Screen saver: a small clock that slowly drifts and bounces around a dimmed
+// screen, so no pixel stays lit in the same place for long.
+// ---------------------------------------------------------------------------
+#define SAVER_TEXT_HEIGHT 15 // 11x18 digits only use rows 1-14
+#define SAVER_MAX_Y       (64 - 18) // the driver needs the full 18-row glyph to fit
+
+static int saver_x  = 20;
+static int saver_y  = 20;
+static int saver_dx = 1;
+static int saver_dy = 1;
+
+static void draw_screen_saver(void)
+{
+    LOCAL_TIME lt;
+    char time_buf[12];
+    char temp_buf[8] = "";
+
+    get_local_time(&lt);
+    format_time(&lt, time_buf, sizeof(time_buf), 0);
+    if (weather_valid)
+    {
+        snprintf(temp_buf, sizeof(temp_buf), "%d%s", weather.temperature, TEMP_UNIT);
+    }
+
+    int width = (int)strlen(time_buf) * 11 + (temp_buf[0] ? 4 + (int)strlen(temp_buf) * 7 : 0);
+
+    // Move one pixel, bouncing off the edges
+    if (saver_x + saver_dx < 0 || saver_x + saver_dx + width > 128)
+    {
+        saver_dx = -saver_dx;
+    }
+    if (saver_y + saver_dy < 0 || saver_y + saver_dy > SAVER_MAX_Y)
+    {
+        saver_dy = -saver_dy;
+    }
+    saver_x += saver_dx;
+    saver_y += saver_dy;
+    if (saver_x + width > 128) // the width can grow, e.g. 9:59 -> 10:00
+    {
+        saver_x = 128 - width;
+    }
+
+    ssd1306_Fill(Black);
+    draw_text(saver_x, saver_y, time_buf, Font_11x18);
+    if (temp_buf[0])
+    {
+        draw_text(saver_x + (int)strlen(time_buf) * 11 + 4, saver_y + 4, temp_buf, Font_7x10);
+    }
+    ssd1306_UpdateScreen();
+}
+
+static void screen_saver_start(void)
+{
+    LOCAL_TIME lt;
+    get_local_time(&lt);
+
+    printf("Screen saver on\r\n");
+    ssd1306_SetContrast(SCREENSAVER_CONTRAST);
+#if SCREEN_OFF_DURING_QUIET_HOURS
+    if (in_quiet_hours(&lt))
+    {
+        ssd1306_SetDisplayOn(0);
+        return;
+    }
+#endif
+    draw_screen_saver();
+}
+
+static void screen_saver_stop(void)
+{
+    printf("Screen saver off\r\n");
+    ssd1306_SetContrast(0xFF); // driver default
+    ssd1306_SetDisplayOn(1);
+}
+
 // Which weather alerts the RGB LED should show right now.
 static int current_alerts(void)
 {
@@ -507,18 +598,10 @@ static int current_alerts(void)
 
     get_local_time(&lt);
 
-    // Quiet hours (the range may wrap past midnight, e.g. 22 -> 7)
-#if LED_QUIET_START_HOUR != LED_QUIET_END_HOUR
-#if LED_QUIET_START_HOUR < LED_QUIET_END_HOUR
-    int quiet = lt.hour >= LED_QUIET_START_HOUR && lt.hour < LED_QUIET_END_HOUR;
-#else
-    int quiet = lt.hour >= LED_QUIET_START_HOUR || lt.hour < LED_QUIET_END_HOUR;
-#endif
-    if (quiet)
+    if (in_quiet_hours(&lt))
     {
         return ALERT_NONE;
     }
-#endif
 
     // Today, or tomorrow once it's evening
     int day = first_upcoming_day();
@@ -572,6 +655,8 @@ static void app_thread_entry(ULONG parameter)
     ULONG forecast_shown   = 0;
     int forecast_page      = 0;
     int last_alerts        = -1;
+    ULONG last_activity    = 0;
+    ULONG saver_last_step  = 0;
     ULONG next_fetch       = 0;
     int last_drawn_minute  = -1;
     int a_was_pressed      = 0;
@@ -598,6 +683,11 @@ static void app_thread_entry(ULONG parameter)
     }
     WIFI_LED_ON();
 
+#if SCREENSAVER_MINUTES > 0
+    motion_init();
+#endif
+    last_activity = tx_time_get();
+
     while (1)
     {
         ULONG now = tx_time_get();
@@ -605,8 +695,35 @@ static void app_thread_entry(ULONG parameter)
         // --- Buttons (active low, polled with edge detection) ---
         int a_pressed = BUTTON_A_IS_PRESSED;
         int b_pressed = BUTTON_B_IS_PRESSED;
+        int a_clicked = a_pressed && !a_was_pressed;
+        int b_clicked = b_pressed && !b_was_pressed;
+        a_was_pressed = a_pressed;
+        b_was_pressed = b_pressed;
 
-        if (a_pressed && !a_was_pressed)
+        // --- Screen saver: wake on a button, a tap or movement ---
+#if SCREENSAVER_MINUTES > 0
+        int moved = motion_detected();
+        if (a_clicked || b_clicked || moved)
+        {
+            last_activity = now;
+            if (screen == SCREEN_SAVER)
+            {
+                screen_saver_stop();
+                screen    = SCREEN_CLOCK;
+                redraw    = 1;
+                a_clicked = 0; // a press that wakes the screen does nothing else
+                b_clicked = 0;
+            }
+        }
+        else if (screen == SCREEN_CLOCK && now - last_activity >= SCREENSAVER_MINUTES * 60UL * TX_TIMER_TICKS_PER_SECOND)
+        {
+            screen          = SCREEN_SAVER;
+            saver_last_step = now;
+            screen_saver_start();
+        }
+#endif
+
+        if (a_clicked)
         {
             // Clock -> today -> tomorrow -> ... -> last day -> clock
             if (screen == SCREEN_CLOCK)
@@ -626,22 +743,19 @@ static void app_thread_entry(ULONG parameter)
             redraw         = 1;
         }
 
-        if (b_pressed && !b_was_pressed)
+        if (b_clicked)
         {
             draw_status("Updating", "weather...");
             next_fetch = now; // fetch right away
             redraw     = 1;
         }
 
-        a_was_pressed = a_pressed;
-        b_was_pressed = b_pressed;
-
         // --- Weather refresh ---
         if ((LONG)(now - next_fetch) >= 0)
         {
             ULONG delay_seconds = refresh_weather() ? WEATHER_REFRESH_MINUTES * 60 : RETRY_SECONDS;
             next_fetch          = tx_time_get() + delay_seconds * TX_TIMER_TICKS_PER_SECOND;
-            redraw              = 1;
+            redraw              = screen != SCREEN_SAVER;
 
             // New data may have fewer upcoming days than the page being shown
             if (forecast_page >= forecast_page_count() && forecast_page > 0)
@@ -659,7 +773,26 @@ static void app_thread_entry(ULONG parameter)
         }
 
         // --- Draw ---
-        if (screen == SCREEN_CLOCK)
+        if (screen == SCREEN_SAVER)
+        {
+            LOCAL_TIME lt;
+            get_local_time(&lt);
+            int dark = 0;
+#if SCREEN_OFF_DURING_QUIET_HOURS
+            // Turn the panel off or back on as quiet hours begin and end
+            dark = in_quiet_hours(&lt);
+            if (dark == ssd1306_GetDisplayOn())
+            {
+                ssd1306_SetDisplayOn(!dark);
+            }
+#endif
+            if (!dark && now - saver_last_step >= SCREENSAVER_STEP_SECONDS * TX_TIMER_TICKS_PER_SECOND)
+            {
+                draw_screen_saver();
+                saver_last_step = now;
+            }
+        }
+        else if (screen == SCREEN_CLOCK)
         {
             LOCAL_TIME lt;
             get_local_time(&lt);

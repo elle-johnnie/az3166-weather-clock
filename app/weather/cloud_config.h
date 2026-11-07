@@ -90,18 +90,48 @@ typedef enum
 #endif
 
 // From this hour on (0-23), alerts are about tomorrow instead of today,
-// so the evening glow tells you what to expect in the morning
+// so the evening glow tells you what to expect in the morning.
+// The LED also stays off during quiet hours (QUIET_START_HOUR, below).
 #define ALERT_TOMORROW_FROM_HOUR 18
-
-// Quiet hours: LED stays off from LED_QUIET_START_HOUR until LED_QUIET_END_HOUR
-// (0-23, local time). Set both to the same value to never go quiet.
-#define LED_QUIET_START_HOUR 22
-#define LED_QUIET_END_HOUR   7
 
 // Peak brightness, 0-2047. The LED is very bright at full power.
 #define LED_MAX_BRIGHTNESS 500
 
 // Length of one slow breath (fade in and out), in seconds
 #define LED_BREATH_SECONDS 4
+
+// ----------------------------------------------------------------------------
+// Quiet hours (local time, 0-23): the LED stays off, and if
+// SCREEN_OFF_DURING_QUIET_HOURS is 1, the screen saver turns the screen fully
+// off. Set both to the same value to never go quiet.
+// ----------------------------------------------------------------------------
+#define QUIET_START_HOUR 22
+#define QUIET_END_HOUR   7
+
+// ----------------------------------------------------------------------------
+// Screen saver (prevents OLED burn-in)
+//
+// After SCREENSAVER_MINUTES with no button press or movement, the screen dims
+// and shows a small clock that slowly drifts around. A button press, a tap on
+// the board, or picking it up / bumping it wakes it.
+// ----------------------------------------------------------------------------
+
+// Minutes of inactivity before the screen saver starts (0 = never)
+#define SCREENSAVER_MINUTES 1
+
+// Screen brightness while the screen saver runs, 0-255 (normal is 255)
+#define SCREENSAVER_CONTRAST 16
+
+// The drifting clock moves one pixel every this many seconds
+#define SCREENSAVER_STEP_SECONDS 2
+
+// 1 = turn the screen fully off during quiet hours (while the saver is on)
+#define SCREEN_OFF_DURING_QUIET_HOURS 1
+
+// Motion sensitivity. Lower = more sensitive.
+//   MOTION_MOVE_THRESHOLD: 1-63, steps of 31 mg (bumps, pick-ups)
+//   MOTION_TAP_THRESHOLD:  1-31, steps of 62.5 mg (taps on the board)
+#define MOTION_MOVE_THRESHOLD 3
+#define MOTION_TAP_THRESHOLD  8
 
 #endif // _CLOUD_CONFIG_H
